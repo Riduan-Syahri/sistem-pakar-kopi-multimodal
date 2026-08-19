@@ -1,6 +1,7 @@
 streamlit
 torch
 torchvision
+pillow
 transformers
-Pillow
+gdown
 scikit-learn
