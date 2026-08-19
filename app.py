@@ -65,12 +65,19 @@ def load_multimodal_artifacts():
 
     for file_path, drive_id in DRIVE_FILE_IDS.items():
         if not os.path.exists(file_path):
-            url = f'https://drive.google.com/uc?id={drive_id}'
-            gdown.download(url, file_path, quiet=False)
+            # Mengunduh langsung menggunakan ID dengan opsi fuzzy & quiet
+            url = f"https://drive.google.com/uc?id={drive_id}"
+            gdown.download(url, file_path, quiet=False, fuzzy=True)
 
-    image_processor = ViTImageProcessor.from_pretrained(
-        'google/vit-base-patch16-224'
-    )
+            # Validasi jika file yang terunduh rusak/berisi HTML
+            with open(file_path, "rb") as f:
+                first_bytes = f.read(10)
+                if b"<html" in first_bytes.lower() or b"<!doctype" in first_bytes.lower():
+                    os.remove(file_path)  # Hapus file corrupt
+                    # Jalankan download ulang dengan format khusus file besar
+                    gdown.download(
+                        id=drive_id, output=file_path, quiet=False, fuzzy=True
+                    )
 
     with open(SCALER_PATH, 'rb') as f:
         scaler = pickle.load(f)
