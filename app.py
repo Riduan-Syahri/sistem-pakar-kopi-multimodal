@@ -1,125 +1,110 @@
-import streamlit as st
 import os
+import pickle
+import gdown
+from PIL import Image
+import streamlit as st
 import torch
 import torch.nn as nn
-from PIL import Image
-import pickle
 from transformers import ViTImageProcessor, ViTModel
 
+
 # ==============================================================================
-# 1. DEFINISI ARSITEKTUR MODEL MULTIMODAL (ViT + MLP LATE FUSION)
+# 1. DEFINISI ARSITEKTUR MODEL MULTIMODAL
 # ==============================================================================
 class ViTTabularFusionModel(nn.Module):
+
     def __init__(self, num_classes=5, tabular_dim=3, hidden_dim=64):
         super(ViTTabularFusionModel, self).__init__()
-        
-        # Backbone Visual: Pre-trained Google Vision Transformer Base
+
         self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
-        vit_output_dim = self.vit.config.hidden_size 
-        
-        # Sub-network Tabular (MLP) untuk Sensor Agro-Klimat
+        vit_output_dim = self.vit.config.hidden_size
+
         self.tabular_mlp = nn.Sequential(
             nn.Linear(tabular_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
+            nn.ReLU(),
         )
-        
-        # Fusion Layer & Kepala Klasifikasi Akhir
-        combined_dim = vit_output_dim + hidden_dim 
+
+        combined_dim = vit_output_dim + hidden_dim
         self.classifier = nn.Sequential(
             nn.Linear(combined_dim, 256),
             nn.ReLU(),
             nn.Dropout(0.4),
-            nn.Linear(256, num_classes)
+            nn.Linear(256, num_classes),
         )
 
     def forward(self, pixel_values, tabular_data):
         vit_outputs = self.vit(pixel_values=pixel_values)
         visual_features = vit_outputs.last_hidden_state[:, 0, :]
-        
         tabular_features = self.tabular_mlp(tabular_data)
-        
         fused_features = torch.cat((visual_features, tabular_features), dim=1)
         logits = self.classifier(fused_features)
         return logits
 
 
- import os
-import pickle
-import gdown
-import streamlit as st
-import torch
-import torch.nn as nn
-from PIL import Image
-from transformers import ViTImageProcessor, ViTModel
-
-
 # ==============================================================================
-# 2. PROSES PEMUATAN ARTIFAK MODEL & DATA PREPROCESSING (UPDATED)
+# 2. PROSES PEMUATAN ARTIFAK MODEL & DATA PREPROCESSING
 # ==============================================================================
 @st.cache_resource
 def load_multimodal_artifacts():
-    # Buat direktori penyimpanan jika belum ada
-    os.makedirs("saved_models", exist_ok=True)
+    os.makedirs('saved_models', exist_ok=True)
 
-    MODEL_PATH = "saved_models/vit_tabular_coffee_model.pth"
-    SCALER_PATH = "saved_models/tabular_scaler.pkl"
-    LABEL_ENCODER_PATH = "saved_models/label_encoder.pkl"
+    MODEL_PATH = 'saved_models/vit_tabular_coffee_model.pth'
+    SCALER_PATH = 'saved_models/tabular_scaler.pkl'
+    LABEL_ENCODER_PATH = 'saved_models/label_encoder.pkl'
 
-    # ID File dari Google Drive (Ganti dengan ID file asli Anda)
+    # Ganti string di bawah dengan ID file Google Drive Anda
     DRIVE_FILE_IDS = {
-        MODEL_PATH: "1qvv_iICJ4jncsn0AllaLSWDWXGKeaxJ3",
-        SCALER_PATH: "1QctT-6uQnv0eNXwzC5k7nMsRINhBRIHP",
-        LABEL_ENCODER_PATH: "1_FGgLTiWlBMRiFUY6z_SKVzyc89PX35S",
+        MODEL_PATH: 'FILE_ID_MODEL_PTH_ANDA',
+        SCALER_PATH: 'FILE_ID_SCALER_PKL_ANDA',
+        LABEL_ENCODER_PATH: 'FILE_ID_LABEL_ENCODER_PKL_ANDA',
     }
 
-    # Auto-Download berkas dari Google Drive jika belum ada di server
     for file_path, drive_id in DRIVE_FILE_IDS.items():
         if not os.path.exists(file_path):
-            url = f"https://drive.google.com/uc?id={drive_id}"
+            url = f'https://drive.google.com/uc?id={drive_id}'
             gdown.download(url, file_path, quiet=False)
 
     image_processor = ViTImageProcessor.from_pretrained(
-        "google/vit-base-patch16-224"
+        'google/vit-base-patch16-224'
     )
 
-    with open(SCALER_PATH, "rb") as f:
+    with open(SCALER_PATH, 'rb') as f:
         scaler = pickle.load(f)
 
-    with open(LABEL_ENCODER_PATH, "rb") as f:
+    with open(LABEL_ENCODER_PATH, 'rb') as f:
         le = pickle.load(f)
 
     num_classes = len(le.classes_)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = ViTTabularFusionModel(num_classes=num_classes, tabular_dim=3)
     state_dict = torch.load(
         MODEL_PATH, map_location=device, weights_only=False
     )
 
-    # Logika Auto-Mapping Lintas Versi Hugging Face
     new_state_dict = {}
     for key, value in state_dict.items():
         new_key = key
-        if "vit.encoder.layer." in key:
-            new_key = key.replace("vit.encoder.layer.", "vit.layers.")
+        if 'vit.encoder.layer.' in key:
+            new_key = key.replace('vit.encoder.layer.', 'vit.layers.')
             new_key = new_key.replace(
-                ".attention.attention.query.", ".attention.q_proj."
+                '.attention.attention.query.', '.attention.q_proj.'
             )
             new_key = new_key.replace(
-                ".attention.attention.key.", ".attention.k_proj."
+                '.attention.attention.key.', '.attention.k_proj.'
             )
             new_key = new_key.replace(
-                ".attention.attention.value.", ".attention.v_proj."
+                '.attention.attention.value.', '.attention.v_proj.'
             )
             new_key = new_key.replace(
-                ".attention.output.dense.", ".attention.o_proj."
+                '.attention.output.dense.', '.attention.o_proj.'
             )
-            new_key = new_key.replace(".intermediate.dense.", ".mlp.fc1.")
-            new_key = new_key.replace(".output.dense.", ".mlp.fc2.")
+            new_key = new_key.replace('.intermediate.dense.', '.mlp.fc1.')
+            new_key = new_key.replace('.output.dense.', '.mlp.fc2.')
         new_state_dict[new_key] = value
 
     model.load_state_dict(new_state_dict, strict=False)
