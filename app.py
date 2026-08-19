@@ -58,9 +58,9 @@ def load_multimodal_artifacts():
 
     # Ganti string di bawah dengan ID file Google Drive Anda
     DRIVE_FILE_IDS = {
-        MODEL_PATH: 'FILE_ID_MODEL_PTH_ANDA',
-        SCALER_PATH: 'FILE_ID_SCALER_PKL_ANDA',
-        LABEL_ENCODER_PATH: 'FILE_ID_LABEL_ENCODER_PKL_ANDA',
+        MODEL_PATH: '1qvv_iICJ4jncsn0AllaLSWDWXGKeaxJ3',
+        SCALER_PATH: '1QctT-6uQnv0eNXwzC5k7nMsRINhBRIHP',
+        LABEL_ENCODER_PATH: '1_FGgLTiWlBMRiFUY6z_SKVzyc89PX35S',
     }
 
     for file_path, drive_id in DRIVE_FILE_IDS.items():
