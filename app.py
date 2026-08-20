@@ -1,15 +1,56 @@
 import os
 import pickle
 import urllib.request
+import numpy as np
 import streamlit as st
 import torch
 import torch.nn as nn
 from PIL import Image
 from transformers import ViTImageProcessor, ViTModel
 
+# ==============================================================================
+# 1. DEKLARASI ARSITEKTUR MODEL (HARUS DI ATAS SEBELUM DIPANGGIL)
+# ==============================================================================
+class ViTTabularFusionModel(nn.Module):
+    def __init__(self, num_classes, tabular_dim=3):
+        super(ViTTabularFusionModel, self).__init__()
+        # Load backbone Vision Transformer
+        self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+        
+        # Multilayer Perceptron untuk Data Tabular
+        self.tabular_mlp = nn.Sequential(
+            nn.Linear(tabular_dim, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(32, 16),
+            nn.ReLU()
+        )
+        
+        # Classifier Head (Late Fusion)
+        fusion_dim = self.vit.config.hidden_size + 16 # 768 + 16 = 784
+        self.classifier = nn.Sequential(
+            nn.Linear(fusion_dim, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(128, num_classes)
+        )
+
+    def forward(self, pixel_values, tabular_features):
+        vit_outputs = self.vit(pixel_values=pixel_values)
+        image_features = vit_outputs.last_hidden_state[:, 0, :]  # CLS token
+        
+        tab_features = self.tabular_mlp(tabular_features)
+        
+        # Penggabungan fitur visual dan tabular
+        fused_features = torch.cat((image_features, tab_features), dim=1)
+        logits = self.classifier(fused_features)
+        return logits
+
 
 # ==============================================================================
-# PROSES PEMUATAN ARTIFAK MODEL DARI GITHUB RELEASES
+# 2. FUNGSI PEMUATAN ARTIFAK (MENGGUNAKAN GITHUB RELEASES)
 # ==============================================================================
 @st.cache_resource
 def load_multimodal_artifacts():
@@ -19,24 +60,19 @@ def load_multimodal_artifacts():
     SCALER_PATH = "saved_models/tabular_scaler.pkl"
     LABEL_ENCODER_PATH = "saved_models/label_encoder.pkl"
 
-    # GANTI URL DI BAWAH INI DENGAN LINK RELEASES GITHUB ANDA DARI LANGKAH SEBELUMNYA
     FILE_URLS = {
         MODEL_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/vit_tabular_coffee_model.pth",
         SCALER_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/tabular_scaler.pkl",
         LABEL_ENCODER_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/label_encoder.pkl",
     }
 
-    # Auto-Download file dari GitHub Releases menggunakan urllib (Bebas error HTML Google Drive)
+    # Auto-Download file dari GitHub Releases
     for file_path, download_url in FILE_URLS.items():
         if not os.path.exists(file_path):
-            with st.spinner(
-                f"Mengunduh berkas {os.path.basename(file_path)}..."
-            ):
+            with st.spinner(f"Mengunduh berkas {os.path.basename(file_path)}..."):
                 urllib.request.urlretrieve(download_url, file_path)
 
-    image_processor = ViTImageProcessor.from_pretrained(
-        "google/vit-base-patch16-224"
-    )
+    image_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
 
     with open(SCALER_PATH, "rb") as f:
         scaler = pickle.load(f)
@@ -47,29 +83,20 @@ def load_multimodal_artifacts():
     num_classes = len(le.classes_)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Inisialisasi Model
     model = ViTTabularFusionModel(num_classes=num_classes, tabular_dim=3)
-    state_dict = torch.load(
-        MODEL_PATH, map_location=device, weights_only=False
-    )
+    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=False)
 
-    # Logika Auto-Mapping Lintas Versi Hugging Face / PyTorch
+    # Logika Mapping Key Lintas Versi HuggingFace / PyTorch
     new_state_dict = {}
     for key, value in state_dict.items():
         new_key = key
         if "vit.encoder.layer." in key:
             new_key = key.replace("vit.encoder.layer.", "vit.layers.")
-            new_key = new_key.replace(
-                ".attention.attention.query.", ".attention.q_proj."
-            )
-            new_key = new_key.replace(
-                ".attention.attention.key.", ".attention.k_proj."
-            )
-            new_key = new_key.replace(
-                ".attention.attention.value.", ".attention.v_proj."
-            )
-            new_key = new_key.replace(
-                ".attention.output.dense.", ".attention.o_proj."
-            )
+            new_key = new_key.replace(".attention.attention.query.", ".attention.q_proj.")
+            new_key = new_key.replace(".attention.attention.key.", ".attention.k_proj.")
+            new_key = new_key.replace(".attention.attention.value.", ".attention.v_proj.")
+            new_key = new_key.replace(".attention.output.dense.", ".attention.o_proj.")
             new_key = new_key.replace(".intermediate.dense.", ".mlp.fc1.")
             new_key = new_key.replace(".output.dense.", ".mlp.fc2.")
         new_state_dict[new_key] = value
@@ -79,7 +106,6 @@ def load_multimodal_artifacts():
     model.eval()
 
     return model, image_processor, scaler, le, device
-
 # ==============================================================================
 # 3. BASIS PENGETAHUAN (KNOWLEDGE BASE) SOLUSI KOMPREHENSIF PENYAKIT KOPI
 # ==============================================================================
