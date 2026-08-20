@@ -66,11 +66,28 @@ def load_multimodal_artifacts():
         LABEL_ENCODER_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/label_encoder.pkl",
     }
 
-    # Auto-Download file dari GitHub Releases
+    # Auto-Download & Validasi Berkas
     for file_path, download_url in FILE_URLS.items():
+        # 1. Cek jika file sudah ada, apakah filenya corrupt (berisi HTML)?
+        if os.path.exists(file_path):
+            with open(file_path, "rb") as f:
+                header = f.read(10)
+                # Jika berisi tag HTML/doctype bekas download Google Drive yang gagal
+                if (
+                    b"<html" in header.lower()
+                    or b"<!doctype" in header.lower()
+                ):
+                    os.remove(file_path)  # Hapus file corrupt
+
+        # 2. Unduh berkas dari GitHub Releases jika file belum ada/baru saja dihapus
         if not os.path.exists(file_path):
-            with st.spinner(f"Mengunduh berkas {os.path.basename(file_path)}..."):
+            with st.spinner(
+                f"Mengunduh berkas {os.path.basename(file_path)}..."
+            ):
                 urllib.request.urlretrieve(download_url, file_path)
+
+
+                
 
     image_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
 
