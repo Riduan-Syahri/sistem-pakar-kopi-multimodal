@@ -1,117 +1,77 @@
 import os
 import pickle
-import gdown
-from PIL import Image
+import urllib.request
 import streamlit as st
 import torch
 import torch.nn as nn
+from PIL import Image
 from transformers import ViTImageProcessor, ViTModel
 
 
 # ==============================================================================
-# 1. DEFINISI ARSITEKTUR MODEL MULTIMODAL
-# ==============================================================================
-class ViTTabularFusionModel(nn.Module):
-
-    def __init__(self, num_classes=5, tabular_dim=3, hidden_dim=64):
-        super(ViTTabularFusionModel, self).__init__()
-
-        self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
-        vit_output_dim = self.vit.config.hidden_size
-
-        self.tabular_mlp = nn.Sequential(
-            nn.Linear(tabular_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-        )
-
-        combined_dim = vit_output_dim + hidden_dim
-        self.classifier = nn.Sequential(
-            nn.Linear(combined_dim, 256),
-            nn.ReLU(),
-            nn.Dropout(0.4),
-            nn.Linear(256, num_classes),
-        )
-
-    def forward(self, pixel_values, tabular_data):
-        vit_outputs = self.vit(pixel_values=pixel_values)
-        visual_features = vit_outputs.last_hidden_state[:, 0, :]
-        tabular_features = self.tabular_mlp(tabular_data)
-        fused_features = torch.cat((visual_features, tabular_features), dim=1)
-        logits = self.classifier(fused_features)
-        return logits
-
-
-# ==============================================================================
-# 2. PROSES PEMUATAN ARTIFAK MODEL & DATA PREPROCESSING
+# PROSES PEMUATAN ARTIFAK MODEL DARI GITHUB RELEASES
 # ==============================================================================
 @st.cache_resource
 def load_multimodal_artifacts():
-    os.makedirs('saved_models', exist_ok=True)
+    os.makedirs("saved_models", exist_ok=True)
 
-    MODEL_PATH = 'saved_models/vit_tabular_coffee_model.pth'
-    SCALER_PATH = 'saved_models/tabular_scaler.pkl'
-    LABEL_ENCODER_PATH = 'saved_models/label_encoder.pkl'
+    MODEL_PATH = "saved_models/vit_tabular_coffee_model.pth"
+    SCALER_PATH = "saved_models/tabular_scaler.pkl"
+    LABEL_ENCODER_PATH = "saved_models/label_encoder.pkl"
 
-    # Ganti string di bawah dengan ID file Google Drive Anda
-    DRIVE_FILE_IDS = {
-        MODEL_PATH: '1qvv_iICJ4jncsn0AllaLSWDWXGKeaxJ3',
-        SCALER_PATH: '1QctT-6uQnv0eNXwzC5k7nMsRINhBRIHP',
-        LABEL_ENCODER_PATH: '1_FGgLTiWlBMRiFUY6z_SKVzyc89PX35S',
+    # GANTI URL DI BAWAH INI DENGAN LINK RELEASES GITHUB ANDA DARI LANGKAH SEBELUMNYA
+    FILE_URLS = {
+        MODEL_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/vit_tabular_coffee_model.pth",
+        SCALER_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/tabular_scaler.pkl",
+        LABEL_ENCODER_PATH: "https://github.com/Riduan-Syahri/sistem-pakar-kopi-multimodal/releases/download/v1.0.0/label_encoder.pkl",
     }
 
-    for file_path, drive_id in DRIVE_FILE_IDS.items():
+    # Auto-Download file dari GitHub Releases menggunakan urllib (Bebas error HTML Google Drive)
+    for file_path, download_url in FILE_URLS.items():
         if not os.path.exists(file_path):
-            # Mengunduh langsung menggunakan ID dengan opsi fuzzy & quiet
-            url = f"https://drive.google.com/uc?id={drive_id}"
-            gdown.download(url, file_path, quiet=False, fuzzy=True)
+            with st.spinner(
+                f"Mengunduh berkas {os.path.basename(file_path)}..."
+            ):
+                urllib.request.urlretrieve(download_url, file_path)
 
-            # Validasi jika file yang terunduh rusak/berisi HTML
-            with open(file_path, "rb") as f:
-                first_bytes = f.read(10)
-                if b"<html" in first_bytes.lower() or b"<!doctype" in first_bytes.lower():
-                    os.remove(file_path)  # Hapus file corrupt
-                    # Jalankan download ulang dengan format khusus file besar
-                    gdown.download(
-                        id=drive_id, output=file_path, quiet=False, fuzzy=True
-                    )
+    image_processor = ViTImageProcessor.from_pretrained(
+        "google/vit-base-patch16-224"
+    )
 
-    with open(SCALER_PATH, 'rb') as f:
+    with open(SCALER_PATH, "rb") as f:
         scaler = pickle.load(f)
 
-    with open(LABEL_ENCODER_PATH, 'rb') as f:
+    with open(LABEL_ENCODER_PATH, "rb") as f:
         le = pickle.load(f)
 
     num_classes = len(le.classes_)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = ViTTabularFusionModel(num_classes=num_classes, tabular_dim=3)
     state_dict = torch.load(
         MODEL_PATH, map_location=device, weights_only=False
     )
 
+    # Logika Auto-Mapping Lintas Versi Hugging Face / PyTorch
     new_state_dict = {}
     for key, value in state_dict.items():
         new_key = key
-        if 'vit.encoder.layer.' in key:
-            new_key = key.replace('vit.encoder.layer.', 'vit.layers.')
+        if "vit.encoder.layer." in key:
+            new_key = key.replace("vit.encoder.layer.", "vit.layers.")
             new_key = new_key.replace(
-                '.attention.attention.query.', '.attention.q_proj.'
+                ".attention.attention.query.", ".attention.q_proj."
             )
             new_key = new_key.replace(
-                '.attention.attention.key.', '.attention.k_proj.'
+                ".attention.attention.key.", ".attention.k_proj."
             )
             new_key = new_key.replace(
-                '.attention.attention.value.', '.attention.v_proj.'
+                ".attention.attention.value.", ".attention.v_proj."
             )
             new_key = new_key.replace(
-                '.attention.output.dense.', '.attention.o_proj.'
+                ".attention.output.dense.", ".attention.o_proj."
             )
-            new_key = new_key.replace('.intermediate.dense.', '.mlp.fc1.')
-            new_key = new_key.replace('.output.dense.', '.mlp.fc2.')
+            new_key = new_key.replace(".intermediate.dense.", ".mlp.fc1.")
+            new_key = new_key.replace(".output.dense.", ".mlp.fc2.")
         new_state_dict[new_key] = value
 
     model.load_state_dict(new_state_dict, strict=False)
@@ -119,7 +79,6 @@ def load_multimodal_artifacts():
     model.eval()
 
     return model, image_processor, scaler, le, device
-
 
 # ==============================================================================
 # 3. BASIS PENGETAHUAN (KNOWLEDGE BASE) SOLUSI KOMPREHENSIF PENYAKIT KOPI
