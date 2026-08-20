@@ -11,43 +11,43 @@ from transformers import ViTImageProcessor, ViTModel
 # ==============================================================================
 # 1. DEKLARASI ARSITEKTUR MODEL (HARUS DI ATAS SEBELUM DIPANGGIL)
 # ==============================================================================
-class ViTTabularFusionModel(nn.Module):
+ class ViTTabularFusionModel(nn.Module):
+
     def __init__(self, num_classes, tabular_dim=3):
         super(ViTTabularFusionModel, self).__init__()
-        # Load backbone Vision Transformer
-        self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
-        
-        # Multilayer Perceptron untuk Data Tabular
+        # Backbone Vision Transformer
+        self.vit = ViTModel.from_pretrained("google/vit-base-patch16-224")
+
+        # Tabular MLP (Disesuaikan dengan ukuran checkpoint: 3 -> 64 -> 64)
         self.tabular_mlp = nn.Sequential(
-            nn.Linear(tabular_dim, 32),
-            nn.BatchNorm1d(32),
+            nn.Linear(tabular_dim, 64),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(32, 16),
-            nn.ReLU()
+            nn.Linear(64, 64),
+            nn.ReLU(),
         )
-        
-        # Classifier Head (Late Fusion)
-        fusion_dim = self.vit.config.hidden_size + 16 # 768 + 16 = 784
+
+        # Classifier Head (Disesuaikan: 768 + 64 = 832 -> 256 -> num_classes)
+        fusion_dim = self.vit.config.hidden_size + 64  # 768 + 64 = 832
         self.classifier = nn.Sequential(
-            nn.Linear(fusion_dim, 128),
-            nn.BatchNorm1d(128),
+            nn.Linear(fusion_dim, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(0.4),
-            nn.Linear(128, num_classes)
+            nn.Linear(256, num_classes),
         )
 
     def forward(self, pixel_values, tabular_features):
         vit_outputs = self.vit(pixel_values=pixel_values)
         image_features = vit_outputs.last_hidden_state[:, 0, :]  # CLS token
-        
+
         tab_features = self.tabular_mlp(tabular_features)
-        
-        # Penggabungan fitur visual dan tabular
+
+        # Fusion
         fused_features = torch.cat((image_features, tab_features), dim=1)
         logits = self.classifier(fused_features)
         return logits
-
 
 # ==============================================================================
 # 2. FUNGSI PEMUATAN ARTIFAK (MENGGUNAKAN GITHUB RELEASES)
@@ -87,7 +87,7 @@ def load_multimodal_artifacts():
                 urllib.request.urlretrieve(download_url, file_path)
 
 
-                
+
 
     image_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
 
