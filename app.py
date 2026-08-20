@@ -11,7 +11,7 @@ from transformers import ViTImageProcessor, ViTModel
 # ==============================================================================
 # 1. DEKLARASI ARSITEKTUR MODEL (HARUS DI ATAS SEBELUM DIPANGGIL)
 # ==============================================================================
- class ViTTabularFusionModel(nn.Module):
+class ViTTabularFusionModel(nn.Module):
 
     def __init__(self, num_classes, tabular_dim=3):
         super(ViTTabularFusionModel, self).__init__()
